@@ -1,7 +1,9 @@
 local M = {}
 
 function M.dflens()
-	vim.cmd("vsplit|terminal vd /tmp/dflens_test.csv")
+	local buf = vim.api.nvim_create_buf(true, true)
+	vim.api.nvim_open_tabpage(buf, true, {})
+	local job = vim.fn.jobstart({ "visidata", "/tmp/dflens_test.csv" }, { term = true }) -- TODO :use on_exit foe jobstart exit.
 end
 
 function M.setup(opts)
