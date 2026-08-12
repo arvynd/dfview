@@ -9,13 +9,10 @@ end
 local LAYOUTS = { tab = true, float = true, vsplit = true }
 
 function M.open_viewer(opts)
-	-- opts.args is the raw, unsplit string, so a filepath with spaces survives.
-	-- Only peel off the trailing word as `layout` if it's a recognized keyword;
-	-- otherwise the whole string is treated as the filepath.
-	local filepath = opts.args
+	local filepath = opts.args -- unsplit, so filepaths with spaces survive
 	local layout = "tab"
 
-	local rest, lastWord = opts.args:match("^(.-)%s+(%S+)$")
+	local rest, lastWord = opts.args:match("^(.-)%s+(%S+)$") -- split off the last whitespace-separated word as a possible layout keyword
 	if rest and LAYOUTS[lastWord] then
 		filepath = rest
 		layout = lastWord
@@ -30,9 +27,7 @@ function M.open_viewer(opts)
 			relative = "editor",
 			width = width,
 			height = height,
-			-- row/col are the top-left corner, not a center point, so derive them
-			-- from the leftover space around the window to actually center it
-			row = math.floor((vim.o.lines - height) / 2),
+			row = math.floor((vim.o.lines - height) / 2), -- row/col are top-left corner, so center via leftover space
 			col = math.floor((vim.o.columns - width) / 2),
 			style = "minimal",
 			border = "rounded",
