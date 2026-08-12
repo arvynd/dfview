@@ -6,10 +6,18 @@ function M.dflens()
 	local job = vim.fn.jobstart({ "visidata", "/tmp/dflens_test.csv" }, { term = true }) -- TODO :use on_exit foe jobstart exit.
 end
 
+function M.open_viewer(opts)
+	local filepath = opts.args
+	local buf = vim.api.nvim_create_buf(true, true)
+	vim.api.nvim_open_tabpage(buf, true, {})
+	local job = vim.fn.jobstart({ "visidata", filepath }, { term = true }) -- TODO :use on_exit foe jobstart exit.
+end
+
 function M.setup(opts)
 	opts = opts or {}
 
 	vim.api.nvim_create_user_command("OpenDFLens", M.dflens, {})
+	vim.api.nvim_create_user_command("OpenViewer", M.open_viewer, { nargs = 1 })
 
 	local keymap = opts.keymap or "<leader>hw"
 
