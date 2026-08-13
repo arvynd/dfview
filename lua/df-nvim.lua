@@ -127,10 +127,18 @@ function M.open_viewer(opts)
 	local filepath = opts.args -- unsplit, so filepaths with spaces survive
 	local layout = "tab"
 
-	local rest, lastWord = opts.args:match("^(.-)%s+(%S+)$") -- split off the last whitespace-separated word as a possible layout keyword
-	if rest and LAYOUTS[lastWord] then
-		filepath = rest
-		layout = lastWord
+	local quote, quoted_path, rest_after_quote = opts.args:match("^([\"'])(.-)%1%s*(.-)%s*$") -- unwrap matching quotes
+	if quote then
+		filepath = quoted_path
+		if LAYOUTS[rest_after_quote] then
+			layout = rest_after_quote
+		end
+	else
+		local rest, lastWord = opts.args:match("^(.-)%s+(%S+)$") -- split off the last whitespace-separated word as a possible layout keyword
+		if rest and LAYOUTS[lastWord] then
+			filepath = rest
+			layout = lastWord
+		end
 	end
 
 	M.open_if_closed(filepath, layout)
