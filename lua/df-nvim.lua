@@ -123,25 +123,53 @@ function M.dflens()
 	M.toggle("/tmp/dflens_test.csv", "tab")
 end
 
-function M.open_viewer(opts)
-	local filepath = opts.args -- unsplit, so filepaths with spaces survive
+-- Splits a raw, unsplit command-arg string into (value, layout), where layout
+-- is an optional trailing keyword (quoted or not) from LAYOUTS.
+local function parse_arg_and_layout(raw)
+	local value = raw
 	local layout = "tab"
 
-	local quote, quoted_path, rest_after_quote = opts.args:match("^([\"'])(.-)%1%s*(.-)%s*$") -- unwrap matching quotes
+	local quote, quoted_value, rest_after_quote = raw:match("^([\"'])(.-)%1%s*(.-)%s*$") -- unwrap matching quotes
 	if quote then
-		filepath = quoted_path
+		value = quoted_value
 		if LAYOUTS[rest_after_quote] then
 			layout = rest_after_quote
 		end
 	else
-		local rest, lastWord = opts.args:match("^(.-)%s+(%S+)$") -- split off the last whitespace-separated word as a possible layout keyword
+		local rest, lastWord = raw:match("^(.-)%s+(%S+)$") -- split off the last whitespace-separated word as a possible layout keyword
 		if rest and LAYOUTS[lastWord] then
-			filepath = rest
+			value = rest
 			layout = lastWord
 		end
 	end
 
+	return value, layout
+end
+
+function M.open_viewer(opts)
+	local filepath, layout = parse_arg_and_layout(opts.args) -- unsplit, so filepaths with spaces survive
 	M.open_if_closed(filepath, layout)
+end
+
+-- :DfInspect <python expr> [layout] — evaluates `expr` in the current paused
+-- debug frame, serializes it to a temp CSV, and opens that in the viewer.
+function M.dap_inspect(opts)
+	local expression, layout = parse_arg_and_layout(opts.args)
+	require("df-nvim.dap").inspect(expression, layout)
+end
+
+-- Reads the variable name off the current line in a dap-ui Scopes/Watches
+-- buffer and inspects it the same way :DfInspect would.
+function M.dap_inspect_cursor(layout)
+	local line = vim.api.nvim_get_current_line()
+	-- dap-ui renders variables as "<indent/icon> name: value"; strip everything
+	-- up to the first identifier-looking token before the colon.
+	local name = line:match("^%s*[^%w_]-([%w_][%w_.%[%]]*)%s*:")
+	if not name then
+		vim.notify("df-nvim: no variable found on this line", vim.log.levels.WARN)
+		return
+	end
+	require("df-nvim.dap").inspect(name, layout)
 end
 
 function M.setup(opts)
@@ -150,6 +178,22 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("OpenDFLens", M.dflens, {})
 	vim.api.nvim_create_user_command("OpenViewer", M.open_viewer, { nargs = "+" }) -- one or more arguments
 	vim.api.nvim_create_user_command("CloseViewer", M.close_if_open, {})
+
+	if opts.dap ~= false and pcall(require, "dap") then
+		vim.api.nvim_create_user_command("DfInspect", M.dap_inspect, { nargs = "+" })
+
+		if pcall(require, "dapui") then
+			local inspect_keymap = opts.dap_inspect_keymap or "gd"
+			vim.api.nvim_create_autocmd("FileType", {
+				pattern = { "dapui_scopes", "dapui_watches" },
+				callback = function(args)
+					vim.keymap.set("n", inspect_keymap, function()
+						M.dap_inspect_cursor()
+					end, { buffer = args.buf, silent = true, desc = "Inspect dataframe in VisiData" })
+				end,
+			})
+		end
+	end
 
 	local keymap = opts.keymap or "<leader>hw"
 
