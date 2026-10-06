@@ -1,13 +1,23 @@
 local M = {}
 
-local SERIALIZERS = {
-	pandas = function(expr, path)
-		return string.format('%s.to_csv(r"%s")', expr, path)
-	end,
-	polars = function(expr, path)
-		return string.format('%s.write_csv(r"%s")', expr, path)
-	end,
+M.config = {
+	format = "auto", -- "parquet", "csv", or "auto" (parquet, falling back to csv)
 }
+
+-- Python method used to write each supported dataframe kind, per file format.
+local WRITERS = {
+	parquet = { pandas = "to_parquet", polars = "write_parquet" },
+	csv = { pandas = "to_csv", polars = "write_csv" },
+}
+
+-- Formats to try, in order, for each `format` option value.
+local FORMAT_ORDER = {
+	auto = { "parquet", "csv" },
+	parquet = { "parquet" },
+	csv = { "csv" },
+}
+
+M.FORMATS = FORMAT_ORDER
 
 local function get_session_and_frame()
 	local ok, dap = pcall(require, "dap")
@@ -42,14 +52,41 @@ local function evaluate(session, frame_id, expression, callback)
 	end)
 end
 
-local function temp_csv_path()
+local function temp_path(ext)
 	local dir = vim.fn.stdpath("cache") .. "/df-nvim"
 	vim.fn.mkdir(dir, "p")
-	return string.format("%s/%d.csv", dir, vim.loop.hrtime())
+	return string.format("%s/%d.%s", dir, vim.loop.hrtime(), ext)
+end
+
+-- Writes `expression` to a temp file, trying each format from M.config.format
+-- in order until one succeeds. Calls back with (path, nil) or (nil, err).
+local function write_frame(session, frame_id, kind, expression, callback)
+	local formats = FORMAT_ORDER[M.config.format] or FORMAT_ORDER.auto
+
+	local function try(i)
+		local ext = formats[i]
+		local path = temp_path(ext)
+		local code = string.format('%s.%s(r"%s")', expression, WRITERS[ext][kind], path)
+		evaluate(session, frame_id, code, function(_, err)
+			if not err then
+				callback(path, nil)
+			elseif i < #formats then
+				vim.notify(
+					string.format("df-nvim: %s write failed (%s), falling back to %s", ext, err, formats[i + 1]),
+					vim.log.levels.INFO
+				)
+				try(i + 1)
+			else
+				callback(nil, err)
+			end
+		end)
+	end
+
+	try(1)
 end
 
 -- Evaluates `expression` in the current paused debug frame, serializes the
--- result to a temp CSV (pandas/polars only), and opens it in the viewer.
+-- result to a temp file (pandas/polars only), and opens it in the viewer.
 function M.inspect(expression, layout)
 	local session, frame_id, err = get_session_and_frame()
 	if not session then
@@ -64,8 +101,7 @@ function M.inspect(expression, layout)
 		end
 
 		local kind = response.result and response.result:gsub("^['\"]", ""):gsub("['\"]$", "")
-		local serialize = SERIALIZERS[kind]
-		if not serialize then
+		if not WRITERS.csv[kind] then
 			vim.notify(
 				string.format("df-nvim: '%s' is not a supported dataframe (got %s)", expression, kind or "unknown"),
 				vim.log.levels.ERROR
@@ -73,8 +109,7 @@ function M.inspect(expression, layout)
 			return
 		end
 
-		local path = temp_csv_path()
-		evaluate(session, frame_id, serialize(expression, path), function(_, serialize_err)
+		write_frame(session, frame_id, kind, expression, function(path, serialize_err)
 			if serialize_err then
 				vim.notify("df-nvim: failed to serialize '" .. expression .. "': " .. serialize_err, vim.log.levels.ERROR)
 				return

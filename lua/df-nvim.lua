@@ -180,6 +180,16 @@ function M.setup(opts)
 	vim.api.nvim_create_user_command("CloseViewer", M.close_if_open, {})
 
 	if opts.dap ~= false and pcall(require, "dap") then
+		local dap_mod = require("df-nvim.dap")
+		if opts.format ~= nil then
+			if dap_mod.FORMATS[opts.format] then
+				dap_mod.config.format = opts.format
+			else
+				dap_mod.config.format = "auto"
+				vim.notify("df-nvim: unknown format '" .. tostring(opts.format) .. "', using 'auto'", vim.log.levels.WARN)
+			end
+		end
+
 		vim.api.nvim_create_user_command("DfInspect", M.dap_inspect, { nargs = "+" })
 
 		if pcall(require, "dapui") then
